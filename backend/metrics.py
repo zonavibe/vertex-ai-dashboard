@@ -91,9 +91,16 @@ def _normalize_series(time_series_iter, label_keys: list[str]) -> list[dict]:
 
         points = []
         for p in ts.points:
-            # ALIGN_DELTA on an INT64 metric returns int64_value.
-            value = p.value.int64_value
-            ts_seconds = p.interval.end_time.seconds
+            # proto-plus surfaces Timestamps as DatetimeWithNanoseconds
+            # (a datetime subclass), not raw protobuf Timestamp — so we
+            # use .timestamp() to get unix seconds, not .seconds.
+            ts_seconds = int(p.interval.end_time.timestamp())
+            # model_invocation_count is INT64 and token_count is INT64,
+            # but be defensive in case the API ever surfaces a DOUBLE
+            # (e.g. a future ALIGN_RATE on a different metric). Both
+            # unset proto fields default to 0, so the `or` chain
+            # picks whichever one was actually populated.
+            value = p.value.int64_value or p.value.double_value or 0
             points.append((ts_seconds, value))
 
         out.append({"labels": labels, "points": points})
