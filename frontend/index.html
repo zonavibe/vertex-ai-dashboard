@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vertex AI Usage Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <!--
+      Chart.js v4 from a CDN. Using a CDN means no build step and no
+      node_modules — the entire frontend is three plain files.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Vertex AI Usage</h1>
+
+      <div class="controls">
+        <label>
+          Project
+          <select id="project-select"></select>
+        </label>
+        <label>
+          Timeframe
+          <select id="timeframe-select">
+            <option value="1h">Last hour</option>
+            <option value="24h" selected>Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </label>
+        <button id="refresh-btn" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Status / error banner — hidden by default, shown when needed. -->
+      <div id="status" class="status hidden"></div>
+
+      <!-- Headline numbers. -->
+      <section class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Queries</div>
+          <div class="stat-value" id="stat-total">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Daily Average</div>
+          <div class="stat-value" id="stat-daily">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Peak Queries / Min</div>
+          <div class="stat-value" id="stat-peak">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Queries / Min</div>
+          <div class="stat-value" id="stat-avg">—</div>
+        </div>
+      </section>
+
+      <!-- Doughnut charts. Each <canvas> is a Chart.js render target. -->
+      <section class="chart-grid">
+        <div class="chart-card">
+          <h2>% Queries by Model</h2>
+          <canvas id="chart-model"></canvas>
+        </div>
+        <div class="chart-card">
+          <h2>% Queries by Region</h2>
+          <canvas id="chart-region"></canvas>
+        </div>
+        <div class="chart-card">
+          <h2>% Queries by Response Code</h2>
+          <canvas id="chart-response"></canvas>
+        </div>
+      </section>
+
+      <!-- Per-model breakdown. -->
+      <section class="table-card">
+        <h2>Queries by Model</h2>
+        <table id="model-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Peak Input Tokens / Min</th>
+              <th>Avg Input Tokens / Min</th>
+              <th>Peak Queries / Min</th>
+              <th>Avg Queries / Min</th>
+              <th>Total Queries</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <footer class="meta" id="meta"></footer>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
