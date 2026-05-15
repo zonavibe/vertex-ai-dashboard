@@ -140,6 +140,14 @@ main {
   padding: 16px 20px;
 }
 
+/* Direct-child cards (table + the two bottom bar-chart cards) need
+   their own bottom spacing — the .chart-grid above them uses gap, so
+   only standalone siblings under <main> need margin. */
+main > .chart-card,
+main > .table-card {
+  margin-bottom: 24px;
+}
+
 .chart-card h2,
 .table-card h2 {
   margin: 0 0 12px;
@@ -152,6 +160,13 @@ main {
 
 .chart-card canvas {
   max-height: 280px;
+}
+
+.chart-card .empty-state {
+  color: var(--muted);
+  text-align: center;
+  margin: 24px 0;
+  font-size: 13px;
 }
 
 table {

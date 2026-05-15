@@ -91,6 +91,19 @@
         </table>
       </section>
 
+      <!-- Bar charts: full-width, one bar per model. -->
+      <section class="chart-card">
+        <h2>Average Tokens per Query (per model, input + output)</h2>
+        <canvas id="chart-avg-tokens"></canvas>
+      </section>
+
+      <!-- Tokens per Day shows only on 7d / 30d timeframes. The .hidden
+           class is toggled by app.js based on data.timeframe. -->
+      <section class="chart-card hidden" id="tokens-per-day-card">
+        <h2>Tokens per Day (per model, input + output)</h2>
+        <canvas id="chart-tokens-per-day"></canvas>
+      </section>
+
       <footer class="meta" id="meta"></footer>
     </main>
 

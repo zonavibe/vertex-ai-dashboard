@@ -88,6 +88,8 @@ async function refresh() {
     renderDoughnut("chart-region", body.by_region);
     renderDoughnut("chart-response", body.by_response_code);
     renderTable(body.per_model_table);
+    renderAvgTokensPerQuery(body.avg_tokens_per_query_by_model);
+    renderTokensPerDay(body.tokens_per_day_by_model, body.timeframe);
     renderMeta(body);
     hideStatus();
   } catch (err) {
@@ -150,6 +152,135 @@ function renderDoughnut(canvasId, percentByGroup) {
   } else {
     state.charts[canvasId] = new Chart(document.getElementById(canvasId), config);
   }
+}
+
+// Generic bar-chart helper. Same create-or-update pattern as renderDoughnut
+// — never call new Chart() on a canvas that already has an instance, or
+// Chart.js leaks the previous one and tooltips behave strangely.
+function renderBar(canvasId, { labels, datasets, stacked = false }) {
+  const config = {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom", labels: { color: "#e6edf3", boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label || ""}: ${ctx.parsed.y.toLocaleString()}`,
+          },
+        },
+      },
+      scales: {
+        x: { stacked, ticks: { color: "#8b949e" }, grid: { color: "#2a313a" } },
+        y: {
+          stacked,
+          beginAtZero: true,
+          ticks: { color: "#8b949e", callback: (v) => v.toLocaleString() },
+          grid: { color: "#2a313a" },
+        },
+      },
+    },
+  };
+
+  const existing = state.charts[canvasId];
+  if (existing) {
+    existing.data.labels = labels;
+    existing.data.datasets = datasets;
+    existing.options.scales.x.stacked = stacked;
+    existing.options.scales.y.stacked = stacked;
+    existing.update();
+  } else {
+    state.charts[canvasId] = new Chart(document.getElementById(canvasId), config);
+  }
+}
+
+// Toggle a chart canvas vs. an inline "No data" message inside its card.
+// We keep the existing Chart.js instance untouched (just hide the canvas),
+// so when data returns the next render reuses it and avoids leaks.
+function setBarEmptyState(canvasId, isEmpty) {
+  const canvas = document.getElementById(canvasId);
+  const card = canvas.closest(".chart-card");
+  let msg = card.querySelector(".empty-state");
+  if (isEmpty) {
+    canvas.classList.add("hidden");
+    if (!msg) {
+      msg = document.createElement("p");
+      msg.className = "empty-state";
+      msg.textContent = "No data in this timeframe.";
+      card.appendChild(msg);
+    } else {
+      msg.classList.remove("hidden");
+    }
+  } else {
+    canvas.classList.remove("hidden");
+    if (msg) msg.classList.add("hidden");
+  }
+}
+
+function renderAvgTokensPerQuery(byModel) {
+  // byModel = {model_name: avg_tokens_per_query}
+  // Single dataset, one bar per model. Sort descending so the heaviest
+  // model is on the left.
+  const sorted = Object.entries(byModel || {}).sort((a, b) => b[1] - a[1]);
+  if (sorted.length === 0) {
+    setBarEmptyState("chart-avg-tokens", true);
+    return;
+  }
+  setBarEmptyState("chart-avg-tokens", false);
+
+  const labels = sorted.map(([m]) => m);
+  const values = sorted.map(([, v]) => v);
+  const colors = labels.map((_, i) => PALETTE[i % PALETTE.length]);
+
+  renderBar("chart-avg-tokens", {
+    labels,
+    datasets: [
+      {
+        label: "Avg Tokens / Query",
+        data: values,
+        backgroundColor: colors,
+        borderColor: "#161b22",
+        borderWidth: 1,
+      },
+    ],
+  });
+}
+
+function renderTokensPerDay(payload, timeframe) {
+  // Only show on week+/month timeframes (per the spec).
+  const card = document.getElementById("tokens-per-day-card");
+  const showOnTimeframes = ["7d", "30d"];
+  if (!showOnTimeframes.includes(timeframe)) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+
+  // payload = {days: [...], models: [...], matrix: {model: [day_values...]}}
+  // One Chart.js dataset per model, all sharing the `days` axis. By default
+  // Chart.js renders multiple bar datasets side-by-side (grouped) — exactly
+  // "a new bar per model" per day.
+  const days = payload?.days || [];
+  const models = payload?.models || [];
+  const matrix = payload?.matrix || {};
+
+  if (days.length === 0 || models.length === 0) {
+    setBarEmptyState("chart-tokens-per-day", true);
+    return;
+  }
+  setBarEmptyState("chart-tokens-per-day", false);
+
+  const datasets = models.map((model, i) => ({
+    label: model,
+    data: matrix[model] || [],
+    backgroundColor: PALETTE[i % PALETTE.length],
+    borderColor: "#161b22",
+    borderWidth: 1,
+  }));
+
+  renderBar("chart-tokens-per-day", { labels: days, datasets });
 }
 
 function renderTable(rows) {

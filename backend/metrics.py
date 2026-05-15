@@ -2,15 +2,18 @@
 Cloud Monitoring queries.
 
 We pull every datapoint from the publisher metric family that Vertex AI emits
-when a foundation model is invoked. Four queries cover everything the
+when a foundation model is invoked. Five queries cover everything the
 dashboard needs:
 
-    A. model_invocation_count grouped by model_user_id  (per-model)
-    B. model_invocation_count grouped by location       (per-region)
-    C. model_invocation_count grouped by response_code  (per-status)
-    D. token_count, type=input, grouped by model_user_id (per-model tokens)
+    A. model_invocation_count grouped by model_user_id    (per-model)
+    B. model_invocation_count grouped by location         (per-region)
+    C. model_invocation_count grouped by response_code    (per-status)
+    D. token_count, type=input, grouped by model_user_id  (per-model input tokens)
+    E. token_count (no type filter) grouped by model_user_id
+       (per-model total tokens — input + output, summed by REDUCE_SUM —
+        powers the two bottom bar charts)
 
-All four run in parallel via asyncio.gather, since each is an independent
+All five run in parallel via asyncio.gather, since each is an independent
 network call.
 """
 
@@ -133,7 +136,7 @@ async def fetch_dashboard_metrics(
     project_id: str,
     timeframe: str,
 ) -> dict:
-    """Run all 4 Monitoring queries in parallel and assemble the dashboard payload."""
+    """Run all 5 Monitoring queries in parallel and assemble the dashboard payload."""
     if timeframe not in TIMEFRAME_DELTAS:
         raise ValueError(f"Unknown timeframe: {timeframe!r}")
 
@@ -175,9 +178,30 @@ async def fetch_dashboard_metrics(
         interval,
         ["resource.label.model_user_id"],
     )
+    # Total tokens (input + output) per model. Powers the two new bar
+    # charts. Same metric as above but with no `type` filter, so the
+    # cross_series_reducer SUMs both input and output rows together.
+    by_model_total_tokens_task = asyncio.to_thread(
+        _query_sync,
+        credentials,
+        project_id,
+        f'metric.type = "{METRIC_TOKEN}"',
+        interval,
+        ["resource.label.model_user_id"],
+    )
 
-    by_model, by_region, by_response, by_model_tokens = await asyncio.gather(
-        by_model_task, by_region_task, by_response_task, by_model_tokens_task
+    (
+        by_model,
+        by_region,
+        by_response,
+        by_model_tokens,
+        by_model_total_tokens,
+    ) = await asyncio.gather(
+        by_model_task,
+        by_region_task,
+        by_response_task,
+        by_model_tokens_task,
+        by_model_total_tokens_task,
     )
 
     elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -198,4 +222,11 @@ async def fetch_dashboard_metrics(
         "by_response_code": aggregations.percent_by_group(by_response, "response_code"),
         # Detail table.
         "per_model_table": aggregations.per_model_table(by_model, by_model_tokens),
+        # Bottom bar charts (total tokens, input + output).
+        "tokens_per_day_by_model": aggregations.tokens_per_day_by_model(
+            by_model_total_tokens
+        ),
+        "avg_tokens_per_query_by_model": aggregations.avg_tokens_per_query_by_model(
+            by_model_total_tokens, by_model
+        ),
     }

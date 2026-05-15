@@ -12,6 +12,8 @@ locally.
 - % queries by model, by region, by HTTP response code (doughnuts)
 - Per-model breakdown table: peak/avg input tokens per minute, peak/avg
   queries per minute, total queries
+- Average tokens per query, per model (bar chart, input + output)
+- Tokens per day, per model (bar chart, shown only on 7d / 30d timeframes)
 
 Selectable timeframe: **last hour, last 24 hours, last 7 days, last 30 days**.
 Picking a different project or timeframe re-fetches automatically.
@@ -23,7 +25,7 @@ Browser  ──HTTP──>  FastAPI (uvicorn)  ──ADC──>  Cloud Monitorin
                                               \──>  Resource Manager
 ```
 
-- **Backend**: Python + FastAPI. One endpoint (`/api/metrics`) fans out 4
+- **Backend**: Python + FastAPI. One endpoint (`/api/metrics`) fans out 5
   parallel Cloud Monitoring queries and assembles the dashboard payload.
 - **Frontend**: vanilla HTML/JS + Chart.js v4 from a CDN. No build step.
 - **Auth**: Application Default Credentials. Locally that means
@@ -46,19 +48,79 @@ Browser  ──HTTP──>  FastAPI (uvicorn)  ──ADC──>  Cloud Monitorin
 
 ## Local setup
 
-```bash
-cd vertexai-dashboard
+Step-by-step instructions for getting the dashboard running on your laptop. All commands are for bash / zsh (macOS or Linux). On Windows, run them inside WSL.
 
+### 1. Install the prerequisites
+
+You need three things on your machine before cloning the repo:
+
+- **Python 3.10 or newer** — check with `python3 --version`. If missing, install via Homebrew (`brew install python`) on macOS or your distro's package manager on Linux.
+- **git** — check with `git --version`. Almost always already installed.
+- **gcloud CLI** — check with `gcloud --version`. If missing, install from <https://cloud.google.com/sdk/docs/install> and run `gcloud init` once afterwards.
+
+### 2. Clone the repository
+
+```bash
+git clone https://github.com/zonavibe/vertex-ai-dashboard.git
+cd vertex-ai-dashboard
+```
+
+The first command downloads the repo into a new `vertex-ai-dashboard/` folder in your current working directory. The second moves you into it — the rest of these commands assume you're inside that folder.
+
+### 3. Create a virtual environment and install dependencies
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
 
+- `python3 -m venv .venv` creates an isolated Python environment in a hidden `.venv/` directory so the dashboard's dependencies don't pollute your system Python.
+- `source .venv/bin/activate` switches your shell into that environment — your prompt should now have `(.venv)` in front of it.
+- `pip install -r requirements.txt` installs FastAPI, uvicorn, and the Google Cloud client libraries (~5 packages, takes ~30 seconds).
+
+### 4. Authenticate to Google Cloud
+
+```bash
 gcloud auth application-default login
+```
 
+This opens a browser window, asks you to sign in to your Google account, and writes credentials to `~/.config/gcloud/application_default_credentials.json`. The dashboard reads that file automatically — there is no other config to set.
+
+You only need to do this once per machine (credentials persist until you revoke or re-run the command).
+
+### 5. Start the dashboard
+
+```bash
 ./run.sh
 ```
 
-Open <http://localhost:8000>.
+You should see uvicorn boot with output ending in something like:
+
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+```
+
+Open <http://localhost:8000> in your browser. The project dropdown will populate with every GCP project your account can see; pick one and a timeframe, and the charts will load.
+
+### Stopping and restarting later
+
+Press `Ctrl+C` in the terminal to stop the server.
+
+When you come back to it in a new shell session, you only need to re-activate the virtualenv and re-launch — no need to reinstall or re-authenticate:
+
+```bash
+cd vertex-ai-dashboard
+source .venv/bin/activate
+./run.sh
+```
+
+### Troubleshooting
+
+- **`./run.sh: Permission denied`** — run `chmod +x run.sh` once, then retry.
+- **`google.auth.exceptions.DefaultCredentialsError`** — you skipped step 4 or your credentials expired. Re-run `gcloud auth application-default login`.
+- **Empty project dropdown** — your account has no projects with both the Cloud Resource Manager API enabled and `resourcemanager.projects.get` permission. See the Prerequisites section above.
+- **Charts are empty for a project that has had Gemini traffic** — Cloud Monitoring has ~5 minutes of ingestion lag, and the project must have the Cloud Monitoring API enabled. Try a wider timeframe (7d / 30d).
 
 ## Running on a GCE VM
 
@@ -95,7 +157,7 @@ vertexai-dashboard/
 │   ├── main.py          # FastAPI routes
 │   ├── auth.py          # ADC resolution
 │   ├── projects.py      # Resource Manager: list visible projects
-│   ├── metrics.py       # Cloud Monitoring: fan out 4 queries
+│   ├── metrics.py       # Cloud Monitoring: fan out 5 queries
 │   └── aggregations.py  # pure math: totals, peaks, percents
 └── frontend/
     ├── index.html       # markup
@@ -115,14 +177,16 @@ Both are DELTA INT64 metrics on the `aiplatform.googleapis.com/PublisherModel`
 resource type, and carry labels for `model_user_id` (e.g. `gemini-1.5-pro`),
 `location` (region), `response_code`, and (for tokens) `type` (input/output).
 
-The dashboard runs four queries with `ALIGN_DELTA` at a 60s alignment period:
+The dashboard runs five queries with `ALIGN_DELTA` at a 60s alignment period:
 
 1. invocations grouped by `model_user_id` → headline cards, % by model, table
 2. invocations grouped by `location` → % by region
 3. invocations grouped by `response_code` → % by response code
 4. input tokens grouped by `model_user_id` → table token columns
+5. total tokens (input + output, no `type` filter) grouped by `model_user_id`
+   → "Average Tokens per Query" bar chart and "Tokens per Day" bar chart
 
-All four run in parallel via `asyncio.gather`. Total wall time ≈ slowest
+All five run in parallel via `asyncio.gather`. Total wall time ≈ slowest
 single call.
 
 ## Notes and gotchas
